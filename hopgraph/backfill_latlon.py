@@ -10,12 +10,8 @@ import io
 
 import psycopg2
 
-# Works both as `python graph/backfill_latlon.py` and `python -m graph.backfill_latlon`.
-try:
-    from .db_secrets import NEON_CONN_STR as SOURCE_CONN_STR
-except ImportError:
-    from db_secrets import NEON_CONN_STR as SOURCE_CONN_STR
-LOCAL_PGDATA = "/Users/evie/Documents/LLLM/permits/graph/pgserver_env/data"
+from .db_secrets import NEON_CONN_STR as SOURCE_CONN_STR
+from .paths import DB_NAME, PGDATA
 
 
 def main() -> None:
@@ -32,7 +28,7 @@ def main() -> None:
     print(f"exported {buf.getvalue().count(chr(10))} rows")
 
     print("updating local parcels table...")
-    local_conn = psycopg2.connect(host=LOCAL_PGDATA, dbname="hopgraph", user="postgres")
+    local_conn = psycopg2.connect(host=str(PGDATA), dbname=DB_NAME, user="postgres")
     cur = local_conn.cursor()
     cur.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION")
     cur.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION")

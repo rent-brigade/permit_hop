@@ -12,14 +12,11 @@ candidate one-beneficial-owner clusters; parcels are attached by looking up
 every AIN whose owner_name_norm falls in the cluster.
 """
 
-from pathlib import Path
-
 import networkx as nx
 import pandas as pd
 
 from . import config
-
-DATA_DIR = Path(__file__).parent / "data"
+from .paths import DATA_DIR
 
 
 def _surviving_key_groups(

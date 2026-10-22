@@ -2,26 +2,23 @@
 
 This is the last step of the pipeline: it does NOT recompute anything --
 normalize.py/build_graph.py/annotate.py already produced clusters.parquet,
-edges.parquet, and weak_links.parquet (see graph/build_graph.py's main()).
+edges.parquet, and weak_links.parquet (see build_graph.py's main()).
 This script reads those, plus the normalized parcel-level data, and bulk-
-writes them into the `hopgraph` database (graph/pgserver_env/), replacing
+writes them into the `hopgraph` database (paths.PGDATA), replacing
 its contents inside one transaction so the API is never caught mid-refresh.
 
-Requires the local Postgres to be running first:
-    (cd graph/pgserver_env && uv run python start_pg.py)
+Requires the database to exist first (uv run python -m hopgraph.init_db),
+then:
+    uv run python -m hopgraph.load
 """
 
 import io
 from datetime import datetime, timezone
-from pathlib import Path
-
 import pandas as pd
 import psycopg2
 
 from . import annotate, normalize
-
-DATA_DIR = Path(__file__).parent / "data"
-PGDATA = Path(__file__).parent / "pgserver_env" / "data"
+from .paths import DATA_DIR, DB_NAME, PGDATA
 
 
 def build_situs_address(row: pd.Series) -> str:
@@ -45,7 +42,7 @@ def copy_df(cur, df: pd.DataFrame, table: str, columns: list[str]) -> None:
 
 
 def main() -> None:
-    conn = psycopg2.connect(host=str(PGDATA), dbname="hopgraph", user="postgres")
+    conn = psycopg2.connect(host=str(PGDATA), dbname=DB_NAME, user="postgres")
     cur = conn.cursor()
 
     started_at = datetime.now(timezone.utc)

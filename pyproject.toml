@@ -1,0 +1,20 @@
+[project]
+name = "permit-hop"
+version = "0.1.0"
+description = "Ownership hop-graph over LA County Assessor parcel records, with a Flask search app."
+readme = "README.md"
+# Pinned to 3.12: pgserver (the embedded Postgres) only ships wheels up to cp312.
+requires-python = "==3.12.*"
+dependencies = [
+    "flask>=3.1.3",
+    "networkx>=3.6.1",
+    "pandas>=3.0.5",
+    "pgserver>=0.1.4",
+    "psycopg2-binary>=2.9.12",
+    "pyarrow>=25.0.1",
+]
+
+[tool.uv]
+# Scripts are run as modules from the repo root (python -m hopgraph.<name>),
+# so the project doesn't need to be built/installed as a package.
+package = false

@@ -5,8 +5,8 @@ downstream (normalize.py, build_graph.py, annotate.py) reads the local parquet
 cache this produces.
 
 Usage:
-    uv run python graph/ingest.py --count-only   # cheap sanity check first
-    uv run python graph/ingest.py                # full bulk export
+    uv run python -m hopgraph.ingest --count-only   # cheap sanity check first
+    uv run python -m hopgraph.ingest                # full bulk export
 
 No geographic filter -- full county table, per project decision (see plan).
 Column list is pruned to only what the ownership graph needs: no geometry,
@@ -17,15 +17,10 @@ resolution.
 
 import argparse
 import sys
-from pathlib import Path
-
 import psycopg2
 
-# Works both as `python graph/ingest.py` and `python -m graph.ingest`.
-try:
-    from .db_secrets import NEON_CONN_STR as CONN_STR
-except ImportError:
-    from db_secrets import NEON_CONN_STR as CONN_STR
+from .db_secrets import NEON_CONN_STR as CONN_STR
+from .paths import DATA_DIR
 
 # Actual column names in parcels_raw contain spaces, so each needs double-quoting
 # in the SQL. Keep this list in sync with what normalize.py expects.
@@ -67,7 +62,6 @@ COLUMNS = [
     "document number",
 ]
 
-DATA_DIR = Path(__file__).parent / "data"
 CSV_PATH = DATA_DIR / "parcels_raw.csv"
 PARQUET_PATH = DATA_DIR / "parcels_raw.parquet"
 

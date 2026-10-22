@@ -1,4 +1,5 @@
--- Serving schema for the ownership hop-graph app. Populated by load.py from
+-- Serving schema for the ownership hop-graph app. Applied by init_db.py;
+-- populated by load.py (or restore_dump.py) from
 -- the batch pipeline's outputs (clusters.parquet / edges.parquet /
 -- weak_links.parquet / normalized parcels_raw.parquet). The Flask API only
 -- ever reads from these tables -- see the plan for why graph construction
@@ -6,7 +7,7 @@
 --
 -- Search uses built-in full-text search (tsvector + GIN), not pg_trgm:
 -- this local setup runs on the `pgserver` embedded Postgres distribution
--- (graph/pgserver_env/), which only bundles plpgsql and pgvector -- no
+-- (hopgraph/start_pg.py), which only bundles plpgsql and pgvector -- no
 -- contrib extensions. tsvector needs no extension and handles word-prefix
 -- autocomplete fine; the tradeoff is it won't match an arbitrary mid-word
 -- substring the way pg_trgm ILIKE would. A production deployment on a full
@@ -55,6 +56,9 @@ CREATE TABLE IF NOT EXISTS parcels (
     owner_entity_type TEXT NOT NULL,
     cluster_id INTEGER REFERENCES clusters(cluster_id),
     possible_self_transfer BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Filled in after load.py by backfill_latlon.py (not in the parquet outputs).
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
     addr_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', situs_address)) STORED
 );
 CREATE INDEX IF NOT EXISTS idx_parcels_addr_tsv ON parcels USING GIN (addr_tsv);

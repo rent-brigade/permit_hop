@@ -7,12 +7,9 @@ backfill that happened after the original parquet exports.
 Restore with restore_dump.py.
 """
 
-from pathlib import Path
-
 import psycopg2
 
-PGDATA = "/Users/evie/Documents/LLLM/permits/graph/pgserver_env/data"
-OUT_DIR = Path(__file__).parent / "data" / "dump"
+from .paths import DB_NAME, DUMP_DIR, PGDATA
 
 # Explicit column lists for tables with a GENERATED ALWAYS ... STORED column
 # (name_tsv, addr_tsv) -- those can't be COPY FROM'd back in on restore, so
@@ -34,12 +31,12 @@ TABLE_COLUMNS = {
 
 
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    conn = psycopg2.connect(host=PGDATA, dbname="hopgraph", user="postgres")
+    DUMP_DIR.mkdir(parents=True, exist_ok=True)
+    conn = psycopg2.connect(host=str(PGDATA), dbname=DB_NAME, user="postgres")
     cur = conn.cursor()
     for table, cols in TABLE_COLUMNS.items():
         col_clause = f"({', '.join(cols)})" if cols else ""
-        path = OUT_DIR / f"{table}.csv"
+        path = DUMP_DIR / f"{table}.csv"
         with open(path, "w") as f:
             cur.copy_expert(f"COPY {table}{col_clause} TO STDOUT WITH CSV", f)
         print(f"{table}: {path.stat().st_size / 1e6:.2f} MB")

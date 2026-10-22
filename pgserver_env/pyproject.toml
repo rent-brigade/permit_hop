@@ -1,8 +1,0 @@
-[project]
-name = "pgserver-env"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "pgserver>=0.1.4",
-    "psycopg2-binary>=2.9.12",
-]

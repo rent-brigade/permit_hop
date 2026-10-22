@@ -2,13 +2,13 @@
 
 Every route here is a read against precomputed tables -- see the plan
 (.claude/plans/this-dichotomy-is-especially-zippy-ember.md) for why graph
-construction stays a batch job (graph/build_graph.py) and never happens
+construction stays a batch job (hopgraph/build_graph.py) and never happens
 per-request. "Building the graph for a selected property" is, in practice,
 an indexed lookup of which precomputed cluster it already belongs to.
 
 Run with:
-    (cd graph/pgserver_env && uv run python start_pg.py)   # once per session
-    uv run flask --app graph.webapp.app run --debug
+    uv run python -m hopgraph.start_pg   # once per session
+    uv run flask --app hopgraph.webapp.app run --debug
 """
 
 from flask import Flask, jsonify, render_template, request

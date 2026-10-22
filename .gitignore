@@ -5,14 +5,21 @@
 /artifact_demo.html
 /export_for_artifact.py
 /validate_sample.py
+/hopgraph/export_for_artifact.py
+/hopgraph/validate_sample.py
 
 # Python caches
 __pycache__/
 
 # Regenerated environments / live database
 .venv/
-/pgserver_env/.uv-pythons/
-/pgserver_env/data/
+/pgdata/
+# Old location of the embedded Postgres env/cluster, before the move to /pgdata/
+/pgserver_env/
+
+# Claude Code worktrees
+/.claude/worktrees/
 
 # secrets
 /db_secrets.py
+/hopgraph/db_secrets.py

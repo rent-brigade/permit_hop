@@ -1,17 +1,16 @@
-"""Connection pool to the local serving Postgres (graph/pgserver_env/).
+"""Connection pool to the local serving Postgres (paths.PGDATA).
 
 The API only ever reads from these tables -- graph construction itself is
-the batch job in graph/build_graph.py, not something this app recomputes.
+the batch job in hopgraph/build_graph.py, not something this app recomputes.
 Requires the local Postgres to already be running:
-    (cd graph/pgserver_env && uv run python start_pg.py)
+    uv run python -m hopgraph.start_pg
 """
 
 import re
-from pathlib import Path
 
 from psycopg2.pool import SimpleConnectionPool
 
-PGDATA = Path(__file__).parent.parent / "pgserver_env" / "data"
+from ..paths import DB_NAME, PGDATA
 
 _pool: SimpleConnectionPool | None = None
 
@@ -19,7 +18,7 @@ _pool: SimpleConnectionPool | None = None
 def get_pool() -> SimpleConnectionPool:
     global _pool
     if _pool is None:
-        _pool = SimpleConnectionPool(1, 8, host=str(PGDATA), dbname="hopgraph", user="postgres")
+        _pool = SimpleConnectionPool(1, 8, host=str(PGDATA), dbname=DB_NAME, user="postgres")
     return _pool
 
 
