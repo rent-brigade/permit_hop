@@ -1,0 +1,18 @@
+# Generated data, intermediates, and backups (entire folder)
+/data/
+
+# Artifact leftovers and non-pipeline scripts
+/artifact_demo.html
+/export_for_artifact.py
+/validate_sample.py
+
+# Python caches
+__pycache__/
+
+# Regenerated environments / live database
+.venv/
+/pgserver_env/.uv-pythons/
+/pgserver_env/data/
+
+# secrets
+/db_secrets.py
