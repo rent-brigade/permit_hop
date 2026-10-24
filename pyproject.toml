@@ -1,20 +1,34 @@
 [project]
 name = "permit-hop"
-version = "0.1.0"
-description = "Ownership hop-graph over LA County Assessor parcel records, with a Flask search app."
+version = "0.2.0"
+description = "Owner-network discovery over the parcel database: a graph of owners linked by shared mailing address and care-of contact."
 readme = "README.md"
-# Pinned to 3.12: pgserver (the embedded Postgres) only ships wheels up to cp312.
-requires-python = "==3.12.*"
+# parcel_query needs 3.13+. (The old 3.12 pin was for pgserver, which is gone.)
+requires-python = ">=3.13"
 dependencies = [
     "flask>=3.1.3",
     "networkx>=3.6.1",
     "pandas>=3.0.5",
-    "pgserver>=0.1.4",
-    "psycopg2-binary>=2.9.12",
-    "pyarrow>=25.0.1",
+    "parcel_query",
+    "parcel_cleaning",
+    "pyarrow>=21.0.0",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8"]
 
 [tool.uv]
 # Scripts are run as modules from the repo root (python -m hopgraph.<name>),
 # so the project doesn't need to be built/installed as a package.
 package = false
+
+[tool.uv.sources]
+# The private rent-brigade/lac-parcels repo; you need read access (see README, Setup).
+# parcel_query depends on parcel_cleaning, which that repo declares as a workspace
+# member, so both need a source here.
+parcel_query = { git = "https://github.com/rent-brigade/lac-parcels.git", subdirectory = "packages/parcel_query" }
+parcel_cleaning = { git = "https://github.com/rent-brigade/lac-parcels.git", subdirectory = "packages/parcel_cleaning" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,47 +1,62 @@
-# Los Angeles Ownership Hop Graph
+# Owner networks for LA County parcels
 
-Ingests and processes the table ``parcels_raw`` from the county assessor (credentials not provided, to be filled in in ``hopgraph/db_secrets.py``, see ``hopgraph/db_secrets.example.py``)
-to cluster parcels by likely common owners. Contains a Flask app frontend to query these clusters.
+Finds candidate owner networks in the parcel database: owners (by `owner_key`) linked through a shared mailing address or a shared care-of contact, grouped by connected components of a graph. A network is a lead for a researcher, not a finding of common ownership (parcel ADR 0010).
+
+The parcel database does the cleaning: dedupe (`owner_key`), owner type (`owner_type`, including public bodies), and keyed mailing addresses. This repo only reads the `api` schema through `parcel_query` and runs the graph.
 
 ## Setup
 
-Install the environment with ``uv sync`` (uses Python 3.12 as the embedded Postgres package ``pgserver`` doesn't support 3.13). 
+Requires Python 3.13, [uv](https://docs.astral.sh/uv/), and **read access to the private repo `rent-brigade/lac-parcels`**, which provides the `parcel_query` and `parcel_cleaning` packages. `uv sync` installs them from git, using your git credentials:
 
-## Updating the data
+- HTTPS: sign in with `gh auth login` (or a credential helper with a token that can read the repo).
+- SSH: run `git config --global url."git@github.com:".insteadOf "https://github.com/"` and have a key on your GitHub account.
 
-Updating the data for the frontend querying has five steps:
+```
+uv sync
+cp .env.example .env    # then fill in DB_CONNECTION_STRING (a read-only researcher_ro string from the parcel maintainers)
+```
 
-1. ``uv run python -m hopgraph.ingest`` loads the data into ``data/parcels_raw.parquet``.
-2. ``normalize.py`` and ``annotate.py`` clean the data (called automatically by the next step).
-3. ``uv run python -m hopgraph.build_graph`` writes ``data/clusters.parquet``, ``data/edges.parquet`` and ``data/weak_links.parquet``.
-4. ``uv run python -m hopgraph.load`` loads those outputs into the local Postgres database (in ``pgdata/``), which is what the Flask app queries.
-5. ``uv run python -m hopgraph.backfill_latlon`` adds parcel coordinates for the map.
+To work against a local checkout of lac-parcels instead, temporarily point the two `[tool.uv.sources]` entries in `pyproject.toml` at its `packages/parcel_query` and `packages/parcel_cleaning` directories (`{ path = "...", editable = true }`), and do not commit that change.
 
-On a fresh machine, run ``uv run python -m hopgraph.init_db`` before step 4 to create the database. If you have a copy of the CSV dump in ``data/dump/``, you can skip steps 1–5 and run ``uv run python -m hopgraph.restore_dump`` instead (``dump_tables`` creates that dump).
+The tests need neither the database nor the connection string.
+
+## Building the networks
+
+```
+uv run python -m hopgraph.build_graph
+```
+
+Reads every private owner with an active parcel (keyset pages over `api.owner_summary`), builds the graph, and writes `data/clusters.parquet`, `data/edges.parquet`, `data/weak_links.parquet` and `data/meta.json` (the database run and cleaning version the output came from). Rebuild after each new data run: `owner_key` can change when the cleaning version changes.
+
+Not yet timed at full scale (2.4M parcels). `researcher_ro` has a 30 s statement timeout; `source.py` raises it to 120 s per page and pages by 20,000 owners. If a page is too slow, lower `PAGE_SIZE` in `hopgraph/source.py`.
 
 ## Running the app
 
-Start the Postgres database with ``uv run python -m hopgraph.start_pg`` and then run ``uv run flask --app hopgraph.webapp.app run --debug``, which serves the app at http://127.0.0.1:5000.
+```
+uv run flask --app hopgraph.webapp.app run --debug
+```
 
-## Methodology
+Serves http://127.0.0.1:5000. Cluster membership comes from the parquet files; owner names, parcels and search come live from the database (owner-name trigram index, address keys, `owner_key`).
 
-The clusters are primarily based on ``mail_addr_key`` (joined during cleaning from ``mail house no``, ``m street name``, ``m unit``, and ``m zip``) and ``co_name_clean`` (cleaned from ``special name assessee``). 
+## Tests
 
-The nodes are owner names: first owner name, uppercased with spaces collapsed, stored as owner_name_norm. You group by each key and collect the set of distinct owner names that share it (build_graph.py:_surviving_key_groups).
+```
+uv run pytest
+```
 
-``build_graph.py`` then builds a bipartite graph with owner-name nodes on one side, address and contact key nodes on the other, and builds clusters from connected components.
+Synthetic data only; no database needed.
 
-A key shared by more than 5 distinct owner names (threshold set as variable ``HUB_DEGREE_THRESHOLD``) is left out of clustering and saved to weak_links.parquet. This is to stop superfluous clustering by shared property managers, registered agents and law-firm addresses. 
+## Method
 
-The results are grouped into tiers:
-  - tier1: the cluster has an address link and a person-contact link. This is what the frontend useses.
-  - tier2: only one kind of link.
-  - single: no links at all.
-  - oversized_needs_review: more than 20 owner names, unless the cluster is in VERIFIED_LARGE_CLUSTER_EXCEPTIONS. These can, empirically, either be genuine or anomalous, and should be checked by hand in updates.
+- **Nodes:** one per `owner_key` (name plus mailing address and unit, as the database keyed it). The same entity name at two mailing addresses is two nodes.
+- **Keys:** the mailing building (`mail_building_address_key`) and the care-of contact (`special_name_assessee` where the legend is `C/O`; see `CONTACT_LEGEND` in `config.py`). Edges join an owner to each key it holds.
+- **Hubs:** a key held by more than 5 distinct owners (`HUB_DEGREE_THRESHOLD`) is left out of the graph and saved to `weak_links.parquet`. This stops hops through property managers, registered agents and law-firm addresses.
+- **Excluded:** owners with `owner_type = 'public'` (in SQL), and mortgage servicers and securitization trustees (name pattern, `FINANCIAL_SERVICES_PATTERN`; the database does not classify these).
+- **Tiers:** `tier1` has an address key and a person-contact key; `tier2` any other linking key; `single` none; `oversized_needs_review` more than 20 owners unless the cluster holds a key in `VERIFIED_LARGE_CLUSTER_EXCEPTIONS`. These can be real portfolios or shared-vendor chaining, so check them by hand.
+- **Cluster ids** are a hash of the sorted member `owner_key`s, so the same network keeps its id across runs.
 
+## Not carried over from the raw-data version
 
-Some rows are dropped before building the graph, flagged by regex on the owner name:
-  - ``is_government``: only applied when the name has no LLC/LP/trust/corp suffix, so private LLCs with a word like "CITY" aren't caught.
-  - ``is_financial_services``: mortgage servicers and securitization trustees.
-
-Made with Claude Code. Still needs some cleanup, though some spot checks of known clusters (/non-clusters) has seemed robust so far.
+- Possible self-transfer flag (needed sale fields; not part of the graph).
+- Landlord-unit totals now come from the database's `total_units`.
+- The local Postgres, `ingest`, `load` and `dump` steps.

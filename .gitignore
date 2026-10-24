@@ -11,15 +11,11 @@
 # Python caches
 __pycache__/
 
-# Regenerated environments / live database
+# Regenerated environments
 .venv/
-/pgdata/
-# Old location of the embedded Postgres env/cluster, before the move to /pgdata/
-/pgserver_env/
 
 # Claude Code worktrees
 /.claude/worktrees/
 
 # secrets
-/db_secrets.py
-/hopgraph/db_secrets.py
+.env

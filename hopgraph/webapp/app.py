@@ -1,23 +1,46 @@
-"""Flask API + GUI for the ownership hop-graph.
+"""Flask API + GUI for the owner networks.
 
-Every route here is a read against precomputed tables -- see the plan
-(.claude/plans/this-dichotomy-is-especially-zippy-ember.md) for why graph
-construction stays a batch job (hopgraph/build_graph.py) and never happens
-per-request. "Building the graph for a selected property" is, in practice,
-an indexed lookup of which precomputed cluster it already belongs to.
+The clusters are the cached output of `python -m hopgraph.build_graph` (parquet in
+data/), read once into memory. Names, parcels and search come live from the parcel
+database through parcel_query, using its indexes (owner-name trigram, address keys,
+owner_key). A cluster is a lead for a researcher, not a finding.
 
 Run with:
-    uv run python -m hopgraph.start_pg   # once per session
+    uv run python -m hopgraph.build_graph   # once per data run
     uv run flask --app hopgraph.webapp.app run --debug
 """
 
-from flask import Flask, jsonify, render_template, request
+from functools import lru_cache
 
-from .db import build_prefix_tsquery, get_pool
+import pandas as pd
+from flask import Flask, jsonify, render_template, request
+from parcel_query import find_owners, search_address
+
+from .. import source
+from ..paths import DATA_DIR
 
 app = Flask(__name__)
 
 SEARCH_LIMIT_PER_KIND = 8
+
+
+@lru_cache(maxsize=1)
+def _data():
+    clusters = pd.read_parquet(DATA_DIR / "clusters.parquet")
+    edges = pd.read_parquet(DATA_DIR / "edges.parquet")
+    cluster_of = {k: c for c, keys in zip(clusters["cluster_id"], clusters["owner_keys"]) for k in keys}
+    return clusters.set_index("cluster_id"), edges, cluster_of
+
+
+_conn = None
+
+
+def _db():
+    """One read-only connection, reopened if the server dropped it."""
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = source.connect()
+    return _conn
 
 
 @app.get("/")
@@ -28,132 +51,84 @@ def index():
 @app.get("/api/search")
 def search():
     q = request.args.get("q", "").strip()
-    if len(q) < 2:
+    if len(q) < 3:
         return jsonify({"results": []})
+    _, _, cluster_of = _data()
+    conn = _db()
 
-    tsquery = build_prefix_tsquery(q)
-    if tsquery is None:
-        return jsonify({"results": []})
-
-    pool = get_pool()
-    conn = pool.getconn()
-    try:
-        cur = conn.cursor()
-
-        cur.execute(
-            """
-            SELECT ain, situs_address, cluster_id
-            FROM parcels
-            WHERE addr_tsv @@ to_tsquery('simple', %s)
-            LIMIT %s
-            """,
-            (tsquery, SEARCH_LIMIT_PER_KIND),
-        )
-        address_hits = [
-            {"kind": "address", "label": addr, "ain": ain, "cluster_id": cid}
-            for ain, addr, cid in cur.fetchall()
-        ]
-
-        cur.execute(
-            """
-            SELECT owner_name_norm, entity_type, cluster_id, n_parcels
-            FROM entities
-            WHERE name_tsv @@ to_tsquery('simple', %s)
-            ORDER BY n_parcels DESC
-            LIMIT %s
-            """,
-            (tsquery, SEARCH_LIMIT_PER_KIND),
-        )
-        owner_hits = [
+    results = []
+    owners = find_owners(conn, q, limit=SEARCH_LIMIT_PER_KIND)
+    for row in owners.itertuples():
+        results.append(
             {
                 "kind": "owner",
-                "label": name,
-                "entity_type": etype,
-                "cluster_id": cid,
-                "n_parcels": n,
+                "label": row.owner_full_name,
+                "entity_type": row.owner_type,
+                "cluster_id": cluster_of.get(row.owner_key),
+                "n_parcels": int(row.active_parcel_count),
             }
-            for name, etype, cid, n in cur.fetchall()
-        ]
-
-        return jsonify({"results": address_hits + owner_hits})
-    finally:
-        pool.putconn(conn)
-
-
-@app.get("/api/cluster/<int:cluster_id>")
-def cluster_detail(cluster_id: int):
-    pool = get_pool()
-    conn = pool.getconn()
-    try:
-        cur = conn.cursor()
-
-        cur.execute(
-            """
-            SELECT cluster_id, tier, n_distinct_owner_names, n_parcels,
-                   total_landlord_units, possible_self_transfer_count
-            FROM clusters WHERE cluster_id = %s
-            """,
-            (cluster_id,),
         )
-        row = cur.fetchone()
-        if row is None:
-            return jsonify({"error": "not found"}), 404
-        cid, tier, n_names, n_parcels, total_units, self_transfer_count = row
 
-        cur.execute(
-            "SELECT owner_name_norm, entity_type FROM entities WHERE cluster_id = %s ORDER BY owner_name_norm",
-            (cluster_id,),
+    if any(ch.isdigit() for ch in q):
+        sites = search_address(
+            conn, q, columns=["ain", "situs_address_full", "owner_key"], limit=SEARCH_LIMIT_PER_KIND
         )
-        members = [{"owner_name_norm": n, "entity_type": t} for n, t in cur.fetchall()]
-
-        cur.execute(
-            """
-            SELECT ain, situs_address, possible_self_transfer, latitude, longitude
-            FROM parcels WHERE cluster_id = %s ORDER BY situs_address
-            """,
-            (cluster_id,),
-        )
-        parcels = [
-            {
-                "ain": ain,
-                "situs_address": addr,
-                "possible_self_transfer": pst,
-                "lat": lat,
-                "lon": lon,
-            }
-            for ain, addr, pst, lat, lon in cur.fetchall()
-        ]
-
-        member_names = [m["owner_name_norm"] for m in members]
-        evidence = []
-        if member_names:
-            cur.execute(
-                """
-                SELECT owner_name_norm, key_type, key_value, is_person
-                FROM edges WHERE owner_name_norm = ANY(%s)
-                """,
-                (member_names,),
+        for row in sites.itertuples():
+            results.append(
+                {
+                    "kind": "address",
+                    "label": row.situs_address_full,
+                    "ain": row.ain,
+                    "cluster_id": cluster_of.get(row.owner_key),
+                }
             )
-            evidence = [
-                {"owner_name_norm": n, "key_type": kt, "key_value": kv, "is_person": p}
-                for n, kt, kv, p in cur.fetchall()
-            ]
+    return jsonify({"results": results})
 
-        return jsonify(
-            {
-                "cluster_id": cid,
-                "tier": tier,
-                "n_distinct_owner_names": n_names,
-                "n_parcels": n_parcels,
-                "total_landlord_units": total_units,
-                "possible_self_transfer_count": self_transfer_count,
-                "members": members,
-                "parcels": parcels,
-                "evidence": evidence,
-            }
-        )
-    finally:
-        pool.putconn(conn)
+
+@app.get("/api/cluster/<cluster_id>")
+def cluster_detail(cluster_id: str):
+    clusters, edges, _ = _data()
+    if cluster_id not in clusters.index:
+        return jsonify({"error": "not found"}), 404
+    c = clusters.loc[cluster_id]
+    owner_keys = list(c["owner_keys"])
+    conn = _db()
+
+    members = source.fetch_owner_details(conn, owner_keys)
+    parcels = source.fetch_parcels(conn, owner_keys)
+    evidence = edges[edges["owner_key"].isin(owner_keys)]
+
+    return jsonify(
+        {
+            "cluster_id": cluster_id,
+            "tier": c["tier"],
+            "n_owners": int(c["n_owners"]),
+            "n_parcels": int(c["n_parcels"]),
+            "total_units": float(c["total_units"]),
+            "members": [
+                {"owner_key": r.owner_key, "owner_name": r.owner_full_name, "owner_type": r.owner_type}
+                for r in members.itertuples()
+            ],
+            "parcels": [
+                {
+                    "ain": r.ain,
+                    "situs_address": r.situs_address,
+                    "lat": None if pd.isna(r.latitude) else float(r.latitude),
+                    "lon": None if pd.isna(r.longitude) else float(r.longitude),
+                }
+                for r in parcels.itertuples()
+            ],
+            "evidence": [
+                {
+                    "owner_key": r.owner_key,
+                    "key_type": r.key_type,
+                    "key_value": r.key_value,
+                    "is_person": None if pd.isna(r.is_person) else bool(r.is_person),
+                }
+                for r in evidence.itertuples()
+            ],
+        }
+    )
 
 
 if __name__ == "__main__":

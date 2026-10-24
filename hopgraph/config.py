@@ -1,29 +1,20 @@
-"""Tunable knobs for the ownership hop-graph pipeline.
+"""Tunable knobs for the owner-network graph.
 
-See permits/ASSESSOR_FIELD_NOTES.md and the plan at
-.claude/plans/this-dichotomy-is-especially-zippy-ember.md for the reasoning
-behind these defaults.
+Cleaning is not configured here: the parcel database already provides owner_key,
+owner_type and the mailing-address keys.
 """
 
 # A non-parcel node (address, contact, or entity-name) touching more than this
-# many *distinct owner-name strings* is treated as a hub: recorded as a weak
+# many *distinct owners (owner_key)* is treated as a hub: recorded as a weak
 # link but excluded from connected-components clustering. This is the primary
 # defense against false hops through a shared property manager, registered
 # agent, or institutional department name.
 HUB_DEGREE_THRESHOLD = 5
 
-# last_sale_amount at or below this is treated as "nominal consideration" for
-# the possible_self_transfer flag. NOT used for sentinel-scrubbing -- small
-# real amounts like $9 are genuine signal, not noise. See ASSESSOR_FIELD_NOTES.md.
-NOMINAL_SALE_AMOUNT_THRESHOLD = 100
-
-# The one true sentinel value observed in sale-amount fields (a 9-repunit
-# placeholder, not a real price). Only this exact value gets nulled.
-SALE_AMOUNT_SENTINEL = 999_999_999
-
-# landlord_units outlier cap seen in the sample (real max elsewhere was ~53).
-# Rows at or above this are flagged and excluded from portfolio-sum aggregation.
-LANDLORD_UNITS_OUTLIER = 999
+# Only a special-name field with this legend is a care-of contact; other legends (for
+# example DBA) are not linking evidence. Check the values present with
+# SELECT special_name_legend, count(*) FROM api.owner_summary GROUP BY 1.
+CONTACT_LEGEND = "C/O"
 
 # Keywords marking a `special name assessee` (C/O) string as company/
 # institutional rather than a person. This only affects confidence tiering,
@@ -38,41 +29,7 @@ COMPANY_KEYWORDS = (
     r"ACQUISITION"
 )
 
-# Suffixes on `first owner name` used to classify entity type.
-ENTITY_SUFFIX_PATTERNS = {
-    "llc": r"\bLLC\b",
-    "lp": r"\bL ?P\b",
-    "trust": r"\bTR\b|TRUST",
-    "corp": r"\bINC\b|\bCORP\b",
-}
-
-# Government/public-entity owner-name patterns. Discovered via a real bug: a
-# handful of generic institutional contacts (CITY ATTORNEY, CITY CLERKS
-# OFFICE, DEPT OF TRANSPORTATION, etc.) and shared government-counsel mailing
-# addresses each sit at/under HUB_DEGREE_THRESHOLD individually, but chain
-# together transitively across dozens of unrelated cities and agencies into
-# one enormous false cluster. These entities are out of scope for a private-
-# landlord-tracing tool anyway, so they're filtered out entirely before graph
-# construction rather than patched around at the linking-key level. Only
-# applied to names that don't already carry a business-entity suffix (see
-# ENTITY_SUFFIX_PATTERNS), to avoid false-positives on a private LLC that
-# happens to contain a word like "CITY".
-# Found via cluster 10230 (119 names) slipping through the first version of
-# this filter: LA County's roll uses abbreviated/spaced government spellings
-# ("STATE OF CALIF", "U S GOV", "L A C M T A") that a naive full-word match
-# misses. STATE OF CA/U S GOV/spaced-letter-agency patterns below are
-# intentionally prefix/spacing-tolerant rather than exact phrases.
-GOVERNMENT_NAME_PATTERN = (
-    r"\bCITY\b|\bCOUNTY\b|\bSCHOOL DIST|\bHOUSING AUTHORITY\b|"
-    r"\bPARKING AUTHORITY\b|\bWATER DIST|\bTRANSPORTATION AUTHORITY\b|"
-    r"\bSTATE OF CA\b|\bSTATE OF CALIF|\bU S GOV|\bUNITED STATES\b|"
-    r"\bU\.?\s*S\.?\s*A\.?\b|"
-    r"\bREDEVELOPMENT AGENCY\b|\bJOINT POWERS\b|\bSPECIAL DISTRICT\b|"
-    r"\bPUBLIC UTILITY\b|\bMETROPOLITAN WATER\b|\bMOUNTAINS RECREATION|"
-    r"\bL\s*\.?\s*A\s*\.?\s*C\s*\.?\s*M\s*\.?\s*T\s*\.?\s*A\b|\bMTA\b"
-)
-
-# Post-hoc safety net, independent of the government-entity filter above: any
+# Post-hoc safety net, independent of the owner_type = 'public' filter: any
 # cluster with more distinct owner names than this is flagged for manual
 # review rather than presented as a confirmed portfolio. Chosen well above
 # the largest legitimate cluster seen during validation (6 distinct names)

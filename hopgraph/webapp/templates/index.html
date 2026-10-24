@@ -231,7 +231,7 @@
       return;
     }
 
-    const entities = c.members.map(m => `<div class="entity-row"><span class="chip">${esc(m.entity_type)}</span><span class="name">${esc(m.owner_name_norm)}</span></div>`).join('');
+    const entities = c.members.map(m => `<div class="entity-row"><span class="chip">${esc(m.owner_type)}</span><span class="name">${esc(m.owner_name)}</span></div>`).join('');
 
     const evByType = { address: [], contact: [] };
     for (const e of c.evidence) evByType[e.key_type]?.push(e.key_value);
@@ -242,10 +242,8 @@
 
     const rows = c.parcels.map(p => `<tr><td class="ain">${esc(p.ain)}</td><td>${esc(p.situs_address || '—')}</td></tr>`).join('');
 
-    const unitsStat = c.total_landlord_units != null && c.total_landlord_units > 0
-      ? `<div class="stat"><div class="n tabular">${c.total_landlord_units}</div><div class="label">Units (summed)</div></div>` : '';
-    const selfTransferStat = c.possible_self_transfer_count > 0
-      ? `<div class="stat"><div class="n tabular">${c.possible_self_transfer_count}</div><div class="label">Possible self-transfers</div></div>` : '';
+    const unitsStat = c.total_units != null && c.total_units > 0
+      ? `<div class="stat"><div class="n tabular">${c.total_units}</div><div class="label">Units (summed)</div></div>` : '';
 
     const warning = c.tier === 'oversized_needs_review'
       ? `<div class="block"><p style="margin:0;color:var(--warn)">This cluster is unusually large and has not been confirmed — it may be a shared vendor, government entity, or property-management chain rather than one beneficial owner. Treat it as a lead, not a finding.</p></div>`
@@ -260,10 +258,10 @@
       <section class="result">
         <div class="result-head">
           <div class="stat-row">
-            <div class="stat"><div class="n tabular">${c.n_distinct_owner_names}</div><div class="label">Owner names</div></div>
+            <div class="stat"><div class="n tabular">${c.n_owners}</div><div class="label">Owners</div></div>
             <div class="stat"><div class="n tabular">${c.n_parcels}</div><div class="label">Parcels</div></div>
             ${unitsStat}
-            ${selfTransferStat}
+            
           </div>
           <span class="tier-badge ${esc(c.tier)}">${tierLabel(c.tier)}</span>
         </div>
